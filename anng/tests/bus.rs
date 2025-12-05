@@ -3,7 +3,10 @@ use std::io::Write;
 use std::time::Duration;
 use tracing::Instrument;
 
-#[tokio::test]
+// This test requires a single-threaded runtime because it relies on `tokio::join!(biased; ...)`
+// to poll node2 before node1. In a multi-threaded runtime, the biased hint is not honored and
+// operations may interleave unpredictably, causing the timing-based synchronization to fail.
+#[tokio::test(flavor = "current_thread")]
 async fn basic_bus_communication() {
     let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
