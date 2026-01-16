@@ -142,8 +142,18 @@ jobs:
         run: sudo apt-get remove -y libnng1 libnng-dev
       - name: build and install NNG v2 for nng-sys
         run: .github/scripts/install-nng.sh
+      - name: run nng-sys test
+        # run `cargo test` on `nng-sys
+        run: cargo test -p nng-sys --no-default-features
+      - name: clang include path
+        run: clang -E -v - < /dev/null
       - name: cargo hack nng-sys
         run: cargo hack -p nng-sys --feature-powerset check --skip source-update-bindings
+        env:
+          # /usr/local/include is not a standard C compiler search path
+          CFLAGS: -I/usr/local/include
+          # /usr/local/lib is not in the default library search path on macOS
+          RUSTFLAGS: -L native=/usr/local/lib
   msrv:
     # check that we can build using the minimal rust version that is specified by this crate
     runs-on: ubuntu-latest
