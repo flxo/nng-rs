@@ -10,7 +10,6 @@ use core::net::SocketAddr;
 use core::net::SocketAddrV4;
 use core::net::SocketAddrV6;
 use core::ops::Deref;
-use nng_sys::ErrorCode;
 use std::ffi::CString;
 use std::io;
 
@@ -52,32 +51,116 @@ impl<Protocol> fmt::Debug for Listener<'_, Protocol> {
 
 impl<Protocol> Listener<'_, Protocol> {
     /// Retrieve the local address that this listener is listening on.
+    ///
+    /// For TCP listeners, this parses the bound URL to reconstruct the address.
+    /// The port will be the actual bound port (not 0 even if ephemeral port was requested).
     pub fn local_addr(&self) -> io::Result<Addr> {
-        // SAFETY: these options are valid for listeners, the listener is valid, we use the
-        // appropriate typed pointers to each type.
-        let addr = unsafe {
-            let mut addr = MaybeUninit::<nng_sys::nng_sockaddr>::uninit();
-            let errno = nng_sys::nng_listener_get_addr(
-                self.listener,
-                nng_sys::NNG_OPT_LOCADDR as *const _ as *const c_char,
-                addr.as_mut_ptr(),
-            );
+        // SAFETY: listener is valid, urlp is a valid pointer to receive the URL pointer
+        let url = unsafe {
+            let mut urlp: *const nng_sys::nng_url = core::ptr::null();
+            let errno = nng_sys::nng_listener_get_url(self.listener, &mut urlp);
 
-            let errno = u32::try_from(errno).expect("errno is never negative");
-            if errno == ErrorCode::ENOTSUP as u32 {
+            if errno != 0 {
                 return Err(io::Error::new(
-                    io::ErrorKind::AddrNotAvailable,
-                    "listener transport does not support NNG_OPT_LOCADDR",
+                    io::ErrorKind::Other,
+                    format!("nng_listener_get_url failed with error {errno}"),
                 ));
             }
-            assert_eq!(
-                errno, 0,
-                "all listed error conditions of nng_listener_get_addr are impossible given arguments"
-            );
-            addr.assume_init()
+            assert!(!urlp.is_null(), "URL pointer should not be null on success");
+            urlp
         };
 
-        Ok(Addr::from_nng(addr).expect("LOCADDR on listener is never UNSPEC if errno == 0"))
+        // SAFETY: url is valid and returned by nng_listener_get_url
+        let scheme = unsafe {
+            let scheme_ptr = nng_sys::nng_url_scheme(url);
+            if scheme_ptr.is_null() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "URL has no scheme",
+                ));
+            }
+            CStr::from_ptr(scheme_ptr)
+        };
+
+        let scheme_str = scheme.to_str().map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidData, "URL scheme is not valid UTF-8")
+        })?;
+
+        match scheme_str {
+            "tcp" | "tcp4" | "tcp6" | "tls+tcp" | "tls+tcp4" | "tls+tcp6" => {
+                // SAFETY: url is valid
+                let hostname = unsafe {
+                    let hostname_ptr = nng_sys::nng_url_hostname(url);
+                    if hostname_ptr.is_null() {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "TCP URL has no hostname",
+                        ));
+                    }
+                    CStr::from_ptr(hostname_ptr)
+                };
+
+                let hostname_str = hostname.to_str().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "hostname is not valid UTF-8")
+                })?;
+
+                // SAFETY: url is valid
+                let port = unsafe { nng_sys::nng_url_port(url) };
+                let port = u16::try_from(port).map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "port out of range")
+                })?;
+
+                // Try to parse as IPv4 first, then IPv6
+                if let Ok(ipv4) = hostname_str.parse::<Ipv4Addr>() {
+                    Ok(Addr::Inet(SocketAddrV4::new(ipv4, port)))
+                } else if let Ok(ipv6) = hostname_str.trim_matches(|c| c == '[' || c == ']').parse::<Ipv6Addr>() {
+                    Ok(Addr::Inet6(SocketAddrV6::new(ipv6, port, 0, 0)))
+                } else {
+                    Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("cannot parse hostname '{hostname_str}' as IP address"),
+                    ))
+                }
+            }
+            "ipc" => {
+                // SAFETY: url is valid
+                let path = unsafe {
+                    let path_ptr = nng_sys::nng_url_path(url);
+                    if path_ptr.is_null() {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "IPC URL has no path",
+                        ));
+                    }
+                    CStr::from_ptr(path_ptr)
+                };
+
+                Ok(Addr::Ipc {
+                    path: path.to_owned(),
+                })
+            }
+            "inproc" => {
+                // SAFETY: url is valid
+                let hostname = unsafe {
+                    let hostname_ptr = nng_sys::nng_url_hostname(url);
+                    if hostname_ptr.is_null() {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "inproc URL has no hostname",
+                        ));
+                    }
+                    CStr::from_ptr(hostname_ptr)
+                };
+
+                Ok(Addr::Inproc {
+                    name: hostname.to_owned(),
+                })
+            }
+            _ => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("unsupported URL scheme: {scheme_str}"),
+            )),
+        }
     }
 }
 
@@ -262,7 +345,7 @@ impl<Protocol> TcpListener<'_, Protocol> {
             let mut port = MaybeUninit::<c_int>::uninit();
             let errno = nng_sys::nng_listener_get_int(
                 self.0.listener,
-                nng_sys::NNG_OPT_TCP_BOUND_PORT as *const _ as *const c_char,
+                nng_sys::NNG_OPT_BOUND_PORT as *const _ as *const c_char,
                 port.as_mut_ptr(),
             );
             assert_eq!(

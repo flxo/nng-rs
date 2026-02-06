@@ -2,7 +2,7 @@ use crate::{AioError, pipes::Addr};
 use bytes::{Buf, BufMut};
 use core::{
     cmp::max,
-    ffi::{c_char, c_void},
+    ffi::c_void,
     fmt,
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
@@ -390,18 +390,14 @@ impl Message {
     pub fn remote_addr(&self) -> Option<Addr> {
         let pipe = self.pipe()?;
 
-        // SAFETY: arg and addr are both valid, and on success, nng_pipe_get_addr initializes
+        // SAFETY: pipe and addr are both valid, and on success, nng_pipe_peer_addr initializes addr
         let addr = unsafe {
             let mut addr = MaybeUninit::<nng_sys::nng_sockaddr>::uninit();
-            let errno = nng_sys::nng_pipe_get_addr(
-                pipe,
-                nng_sys::NNG_OPT_REMADDR as *const _ as *const c_char,
-                addr.as_mut_ptr(),
-            );
+            let errno = nng_sys::nng_pipe_peer_addr(pipe, addr.as_mut_ptr());
             match errno {
                 nng_err::NNG_OK => addr.assume_init(),
                 nng_err::NNG_ENOTSUP => {
-                    tracing::warn!("Message pipe does not support REMADDR");
+                    tracing::warn!("Message pipe does not support peer address");
                     return None;
                 }
                 nng_err::NNG_ENOENT => {
@@ -410,14 +406,14 @@ impl Message {
                 }
                 err if err.0 & nng_err::NNG_ESYSERR.0 != 0 => {
                     tracing::warn!(
-                        "nng_pipe_get_addr returned a system error: {}",
+                        "nng_pipe_peer_addr returned a system error: {}",
                         io::Error::from_raw_os_error((err.0 & !(nng_err::NNG_ESYSERR.0)) as i32)
                     );
                     return None;
                 }
                 _ => {
                     unreachable!(
-                        "nng_pipe_get_addr documentation claims err \"{errno}\" is never returned"
+                        "nng_pipe_peer_addr documentation claims err \"{errno}\" is never returned"
                     );
                 }
             }
