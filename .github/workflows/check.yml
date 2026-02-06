@@ -141,7 +141,8 @@ jobs:
       - name: build and install NNG v2 for nng-sys
         run: .github/scripts/install-nng.sh
       - name: cargo hack anng
-        run: cargo hack -p anng --feature-powerset check
+        # TODO(flxo): remove `--skip vendored` once anng is upgraded to support nng v2.0.0-alpha.7
+        run: cargo hack -p anng --feature-powerset check --skip vendored
         env:
           # add /usr/local/include to the C compiler search path for NNG headers
           CFLAGS: -I/usr/local/include
