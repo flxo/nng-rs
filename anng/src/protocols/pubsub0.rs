@@ -563,9 +563,9 @@ impl Pub0 {
 }
 
 impl_set_recv_buffer!(Sub0);
-impl_get_recv_buffer!(Sub0);
+impl_recv_buffer!(Sub0);
 impl_set_send_buffer!(Pub0);
-impl_get_send_buffer!(Pub0);
+impl_send_buffer!(Pub0);
 
 impl Socket<Pub0> {
     /// Publishes a message to all connected subscribers.
@@ -637,35 +637,49 @@ mod tests {
     fn test_pub_send_buffer_configuration() {
         let socket = Pub0::socket().unwrap();
 
+        // Fresh socket has some default
+        let default = socket.send_buffer();
+        assert!(default <= 8192);
+
+        // NNG rejects size=0 for pub sockets
         socket.set_send_buffer(1).unwrap();
-        assert_eq!(socket.get_send_buffer(), 1);
+        assert_eq!(socket.send_buffer(), 1);
 
         socket.set_send_buffer(128).unwrap();
-        assert_eq!(socket.get_send_buffer(), 128);
+        assert_eq!(socket.send_buffer(), 128);
 
         socket.set_send_buffer(8192).unwrap();
-        assert_eq!(socket.get_send_buffer(), 8192);
+        assert_eq!(socket.send_buffer(), 8192);
 
+        // Over-limit rejected, buffer unchanged
         let result = socket.set_send_buffer(8193);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(socket.send_buffer(), 8192);
     }
 
     #[test]
     fn test_sub_recv_buffer_configuration() {
         let socket = Sub0::socket().unwrap();
 
+        // Fresh socket has some default
+        let default = socket.recv_buffer();
+        assert!(default <= 8192);
+
+        // NNG rejects size=0 for sub sockets
         socket.set_recv_buffer(1).unwrap();
-        assert_eq!(socket.get_recv_buffer(), 1);
+        assert_eq!(socket.recv_buffer(), 1);
 
         socket.set_recv_buffer(128).unwrap();
-        assert_eq!(socket.get_recv_buffer(), 128);
+        assert_eq!(socket.recv_buffer(), 128);
 
         socket.set_recv_buffer(8192).unwrap();
-        assert_eq!(socket.get_recv_buffer(), 8192);
+        assert_eq!(socket.recv_buffer(), 8192);
 
+        // Over-limit rejected, buffer unchanged
         let result = socket.set_recv_buffer(8193);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(socket.recv_buffer(), 8192);
     }
 }

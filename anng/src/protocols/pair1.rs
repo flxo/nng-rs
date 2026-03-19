@@ -109,8 +109,7 @@
 //! ```
 
 use crate::{Socket, aio::AioError, message::Message};
-use core::ffi::{CStr, c_char};
-use nng_sys::ErrorCode;
+use core::ffi::CStr;
 use std::io;
 
 /// Pair socket type for one-to-one communication.
@@ -160,9 +159,9 @@ impl Pair1 {
 }
 
 impl_set_send_buffer!(Pair1);
-impl_get_send_buffer!(Pair1);
+impl_send_buffer!(Pair1);
 impl_set_recv_buffer!(Pair1);
-impl_get_recv_buffer!(Pair1);
+impl_recv_buffer!(Pair1);
 
 impl Socket<Pair1> {
     /// Sends a message to the connected pair peer.
@@ -259,29 +258,8 @@ impl Socket<Pair1> {
             "TTL must be between 1 and 15, got {}",
             ttl
         );
-
-        let errno = unsafe {
-            nng_sys::nng_socket_set_int(
-                self.socket,
-                c"ttl-max".as_ptr() as *const c_char,
-                i32::from(ttl),
-            )
-        };
-
-        match u32::try_from(errno).expect("errno is never negative") {
-            0 => {}
-            errno if errno == ErrorCode::ECLOSED as u32 => {
-                unreachable!("socket is still open");
-            }
-            errno if errno == ErrorCode::EINVAL as u32 => {
-                unreachable!("we've checked the range of the input");
-            }
-            errno => {
-                unreachable!(
-                    "nng_socket_set_int documentation claims errno {errno} is never returned"
-                );
-            }
-        }
+        crate::protocols::set_socket_int(self.id(), nng_sys::NNG_OPT_MAXTTL, i32::from(ttl))
+            .expect("set_max_ttl: valid TTL on live socket cannot fail");
     }
 }
 
@@ -323,35 +301,47 @@ mod tests {
     fn test_send_buffer_configuration() {
         let socket = Pair1::socket().unwrap();
 
+        // Fresh socket has some default
+        let default = socket.send_buffer();
+        assert!(default <= 8192);
+
         socket.set_send_buffer(0).unwrap();
-        assert_eq!(socket.get_send_buffer(), 0);
+        assert_eq!(socket.send_buffer(), 0);
 
         socket.set_send_buffer(128).unwrap();
-        assert_eq!(socket.get_send_buffer(), 128);
+        assert_eq!(socket.send_buffer(), 128);
 
         socket.set_send_buffer(8192).unwrap();
-        assert_eq!(socket.get_send_buffer(), 8192);
+        assert_eq!(socket.send_buffer(), 8192);
 
+        // Over-limit rejected, buffer unchanged
         let result = socket.set_send_buffer(8193);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(socket.send_buffer(), 8192);
     }
 
     #[test]
     fn test_recv_buffer_configuration() {
         let socket = Pair1::socket().unwrap();
 
+        // Fresh socket has some default
+        let default = socket.recv_buffer();
+        assert!(default <= 8192);
+
         socket.set_recv_buffer(0).unwrap();
-        assert_eq!(socket.get_recv_buffer(), 0);
+        assert_eq!(socket.recv_buffer(), 0);
 
         socket.set_recv_buffer(128).unwrap();
-        assert_eq!(socket.get_recv_buffer(), 128);
+        assert_eq!(socket.recv_buffer(), 128);
 
         socket.set_recv_buffer(8192).unwrap();
-        assert_eq!(socket.get_recv_buffer(), 8192);
+        assert_eq!(socket.recv_buffer(), 8192);
 
+        // Over-limit rejected, buffer unchanged
         let result = socket.set_recv_buffer(8193);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(socket.recv_buffer(), 8192);
     }
 }

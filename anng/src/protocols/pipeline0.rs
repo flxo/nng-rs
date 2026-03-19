@@ -140,7 +140,7 @@ impl Pull0 {
 }
 
 impl_set_recv_buffer!(Pull0);
-impl_get_recv_buffer!(Pull0);
+impl_recv_buffer!(Pull0);
 
 impl Socket<Pull0> {
     /// Receives the next task from connected push sockets.
@@ -215,7 +215,7 @@ impl Push0 {
 }
 
 impl_set_send_buffer!(Push0);
-impl_get_send_buffer!(Push0);
+impl_send_buffer!(Push0);
 
 impl Socket<Push0> {
     /// Distributes a task to one of the connected pull sockets.
@@ -252,47 +252,59 @@ mod tests {
     fn test_send_buffer_configuration() {
         let pusher = Push0::socket().unwrap();
 
+        // Fresh socket has some default
+        let default = pusher.send_buffer();
+        assert!(default <= 8192);
+
         pusher.set_send_buffer(0).unwrap();
-        assert_eq!(pusher.get_send_buffer(), 0);
+        assert_eq!(pusher.send_buffer(), 0);
 
         pusher.set_send_buffer(1).unwrap();
-        assert_eq!(pusher.get_send_buffer(), 1);
+        assert_eq!(pusher.send_buffer(), 1);
 
         pusher.set_send_buffer(128).unwrap();
-        assert_eq!(pusher.get_send_buffer(), 128);
+        assert_eq!(pusher.send_buffer(), 128);
 
         pusher.set_send_buffer(8192).unwrap();
-        assert_eq!(pusher.get_send_buffer(), 8192);
+        assert_eq!(pusher.send_buffer(), 8192);
 
+        // Over-limit rejected, buffer unchanged
         let result = pusher.set_send_buffer(8193);
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert!(error.to_string().contains("8193"));
         assert!(error.to_string().contains("maximum of 8192"));
+        assert_eq!(pusher.send_buffer(), 8192);
     }
 
     #[test]
     fn test_recv_buffer_configuration() {
         let puller = Pull0::socket().unwrap();
 
+        // Fresh socket has some default
+        let default = puller.recv_buffer();
+        assert!(default <= 8192);
+
         puller.set_recv_buffer(0).unwrap();
-        assert_eq!(puller.get_recv_buffer(), 0);
+        assert_eq!(puller.recv_buffer(), 0);
 
         puller.set_recv_buffer(1).unwrap();
-        assert_eq!(puller.get_recv_buffer(), 1);
+        assert_eq!(puller.recv_buffer(), 1);
 
         puller.set_recv_buffer(128).unwrap();
-        assert_eq!(puller.get_recv_buffer(), 128);
+        assert_eq!(puller.recv_buffer(), 128);
 
         puller.set_recv_buffer(8192).unwrap();
-        assert_eq!(puller.get_recv_buffer(), 8192);
+        assert_eq!(puller.recv_buffer(), 8192);
 
+        // Over-limit rejected, buffer unchanged
         let result = puller.set_recv_buffer(8193);
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert!(error.to_string().contains("8193"));
         assert!(error.to_string().contains("maximum of 8192"));
+        assert_eq!(puller.recv_buffer(), 8192);
     }
 }

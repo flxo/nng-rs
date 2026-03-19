@@ -173,9 +173,9 @@ impl Req0 {
 }
 
 impl_set_send_buffer!(Req0);
-impl_get_send_buffer!(Req0);
+impl_send_buffer!(Req0);
 impl_set_recv_buffer!(Req0);
-impl_get_recv_buffer!(Req0);
+impl_recv_buffer!(Req0);
 
 impl<'socket> ContextfulSocket<'socket, Req0> {
     /// Sends a request and returns a future that will resolve to the reply.
@@ -362,9 +362,9 @@ impl Rep0 {
 }
 
 impl_set_send_buffer!(Rep0);
-impl_get_send_buffer!(Rep0);
+impl_send_buffer!(Rep0);
 impl_set_recv_buffer!(Rep0);
-impl_get_recv_buffer!(Rep0);
+impl_recv_buffer!(Rep0);
 
 impl<'socket> ContextfulSocket<'socket, Rep0> {
     /// Receives a request and returns the message along with a means to reply.
@@ -608,71 +608,95 @@ mod tests {
     fn test_req_send_buffer_configuration() {
         let socket = Req0::socket().unwrap();
 
+        // Fresh socket has some default
+        let default = socket.send_buffer();
+        assert!(default <= 8192);
+
         socket.set_send_buffer(0).unwrap();
-        assert_eq!(socket.get_send_buffer(), 0);
+        assert_eq!(socket.send_buffer(), 0);
 
         socket.set_send_buffer(128).unwrap();
-        assert_eq!(socket.get_send_buffer(), 128);
+        assert_eq!(socket.send_buffer(), 128);
 
         socket.set_send_buffer(8192).unwrap();
-        assert_eq!(socket.get_send_buffer(), 8192);
+        assert_eq!(socket.send_buffer(), 8192);
 
+        // Over-limit rejected, buffer unchanged
         let result = socket.set_send_buffer(8193);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(socket.send_buffer(), 8192);
     }
 
     #[test]
     fn test_req_recv_buffer_configuration() {
         let socket = Req0::socket().unwrap();
 
+        // Fresh socket has some default
+        let default = socket.recv_buffer();
+        assert!(default <= 8192);
+
         socket.set_recv_buffer(0).unwrap();
-        assert_eq!(socket.get_recv_buffer(), 0);
+        assert_eq!(socket.recv_buffer(), 0);
 
         socket.set_recv_buffer(128).unwrap();
-        assert_eq!(socket.get_recv_buffer(), 128);
+        assert_eq!(socket.recv_buffer(), 128);
 
         socket.set_recv_buffer(8192).unwrap();
-        assert_eq!(socket.get_recv_buffer(), 8192);
+        assert_eq!(socket.recv_buffer(), 8192);
 
+        // Over-limit rejected, buffer unchanged
         let result = socket.set_recv_buffer(8193);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(socket.recv_buffer(), 8192);
     }
 
     #[test]
     fn test_rep_send_buffer_configuration() {
         let socket = Rep0::socket().unwrap();
 
+        // Fresh socket has some default
+        let default = socket.send_buffer();
+        assert!(default <= 8192);
+
         socket.set_send_buffer(0).unwrap();
-        assert_eq!(socket.get_send_buffer(), 0);
+        assert_eq!(socket.send_buffer(), 0);
 
         socket.set_send_buffer(128).unwrap();
-        assert_eq!(socket.get_send_buffer(), 128);
+        assert_eq!(socket.send_buffer(), 128);
 
         socket.set_send_buffer(8192).unwrap();
-        assert_eq!(socket.get_send_buffer(), 8192);
+        assert_eq!(socket.send_buffer(), 8192);
 
+        // Over-limit rejected, buffer unchanged
         let result = socket.set_send_buffer(8193);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(socket.send_buffer(), 8192);
     }
 
     #[test]
     fn test_rep_recv_buffer_configuration() {
         let socket = Rep0::socket().unwrap();
 
+        // Fresh socket has some default
+        let default = socket.recv_buffer();
+        assert!(default <= 8192);
+
         socket.set_recv_buffer(0).unwrap();
-        assert_eq!(socket.get_recv_buffer(), 0);
+        assert_eq!(socket.recv_buffer(), 0);
 
         socket.set_recv_buffer(128).unwrap();
-        assert_eq!(socket.get_recv_buffer(), 128);
+        assert_eq!(socket.recv_buffer(), 128);
 
         socket.set_recv_buffer(8192).unwrap();
-        assert_eq!(socket.get_recv_buffer(), 8192);
+        assert_eq!(socket.recv_buffer(), 8192);
 
+        // Over-limit rejected, buffer unchanged
         let result = socket.set_recv_buffer(8193);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(socket.recv_buffer(), 8192);
     }
 }
