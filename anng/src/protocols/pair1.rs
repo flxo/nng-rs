@@ -159,6 +159,11 @@ impl Pair1 {
     }
 }
 
+impl_set_send_buffer!(Pair1);
+impl_get_send_buffer!(Pair1);
+impl_set_recv_buffer!(Pair1);
+impl_get_recv_buffer!(Pair1);
+
 impl Socket<Pair1> {
     /// Sends a message to the connected pair peer.
     ///
@@ -312,5 +317,41 @@ mod tests {
     fn test_max_ttl_invalid_too_high() {
         let socket = Pair1::socket().unwrap();
         socket.set_max_ttl(16); // Should panic
+    }
+
+    #[test]
+    fn test_send_buffer_configuration() {
+        let socket = Pair1::socket().unwrap();
+
+        socket.set_send_buffer(0).unwrap();
+        assert_eq!(socket.get_send_buffer(), 0);
+
+        socket.set_send_buffer(128).unwrap();
+        assert_eq!(socket.get_send_buffer(), 128);
+
+        socket.set_send_buffer(8192).unwrap();
+        assert_eq!(socket.get_send_buffer(), 8192);
+
+        let result = socket.set_send_buffer(8193);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn test_recv_buffer_configuration() {
+        let socket = Pair1::socket().unwrap();
+
+        socket.set_recv_buffer(0).unwrap();
+        assert_eq!(socket.get_recv_buffer(), 0);
+
+        socket.set_recv_buffer(128).unwrap();
+        assert_eq!(socket.get_recv_buffer(), 128);
+
+        socket.set_recv_buffer(8192).unwrap();
+        assert_eq!(socket.get_recv_buffer(), 8192);
+
+        let result = socket.set_recv_buffer(8193);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
     }
 }

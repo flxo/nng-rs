@@ -93,8 +93,6 @@
 
 use crate::{Socket, aio::AioError, message::Message};
 use core::ffi::CStr;
-use core::ffi::c_char;
-use nng_sys::ErrorCode;
 use std::io;
 
 /// Pull socket type for receiving work from push sockets.
@@ -140,6 +138,9 @@ impl Pull0 {
         Ok(socket)
     }
 }
+
+impl_set_recv_buffer!(Pull0);
+impl_get_recv_buffer!(Pull0);
 
 impl Socket<Pull0> {
     /// Receives the next task from connected push sockets.
@@ -213,53 +214,10 @@ impl Push0 {
     }
 }
 
+impl_set_send_buffer!(Push0);
+impl_get_send_buffer!(Push0);
+
 impl Socket<Push0> {
-    /// Sets the send buffer size for this push socket.
-    ///
-    /// Controls how many messages can be queued locally when workers are not
-    /// immediately ready. Set before establishing connections.
-    ///
-    /// **Note**: Transport-level buffering (TCP send buffers, etc.) may occur
-    /// independently of this setting.
-    ///
-    /// # Parameters
-    ///
-    /// - `size`: Messages to buffer (0-8192). Default is 0 (unbuffered).
-    pub fn set_send_buffer(&mut self, size: u16) -> io::Result<()> {
-        // Validate range
-        if size > 8192 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("send buffer size {} exceeds maximum of 8192", size),
-            ));
-        }
-
-        let errno = unsafe {
-            nng_sys::nng_socket_set_int(
-                self.id(),
-                nng_sys::NNG_OPT_SENDBUF as *const _ as *const c_char,
-                i32::from(size),
-            )
-        };
-
-        match u32::try_from(errno).expect("errno is never negative") {
-            0 => Ok(()),
-            errno if errno == ErrorCode::ECLOSED as u32 => {
-                unreachable!("socket is still open");
-            }
-            errno if errno == ErrorCode::EINVAL as u32 => {
-                unreachable!("we've checked the range of the input");
-            }
-            errno if errno == ErrorCode::ENOMEM as u32 => Err(io::Error::new(
-                io::ErrorKind::OutOfMemory,
-                "insufficient memory to resize send buffer",
-            )),
-            errno => {
-                unreachable!("nng documentation claims errno {errno} is never returned");
-            }
-        }
-    }
-
     /// Distributes a task to one of the connected pull sockets.
     ///
     /// Sends the message to exactly one worker using round-robin distribution.
@@ -292,16 +250,45 @@ mod tests {
 
     #[test]
     fn test_send_buffer_configuration() {
-        let mut pusher = Push0::socket().unwrap();
+        let pusher = Push0::socket().unwrap();
 
-        // Test setting various buffer sizes
-        pusher.set_send_buffer(0).unwrap(); // Unbuffered
-        pusher.set_send_buffer(1).unwrap(); // Minimal buffering
-        pusher.set_send_buffer(128).unwrap(); // Moderate buffering
-        pusher.set_send_buffer(8192).unwrap(); // Maximum buffering
+        pusher.set_send_buffer(0).unwrap();
+        assert_eq!(pusher.get_send_buffer(), 0);
 
-        // Test invalid values
+        pusher.set_send_buffer(1).unwrap();
+        assert_eq!(pusher.get_send_buffer(), 1);
+
+        pusher.set_send_buffer(128).unwrap();
+        assert_eq!(pusher.get_send_buffer(), 128);
+
+        pusher.set_send_buffer(8192).unwrap();
+        assert_eq!(pusher.get_send_buffer(), 8192);
+
         let result = pusher.set_send_buffer(8193);
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(error.to_string().contains("8193"));
+        assert!(error.to_string().contains("maximum of 8192"));
+    }
+
+    #[test]
+    fn test_recv_buffer_configuration() {
+        let puller = Pull0::socket().unwrap();
+
+        puller.set_recv_buffer(0).unwrap();
+        assert_eq!(puller.get_recv_buffer(), 0);
+
+        puller.set_recv_buffer(1).unwrap();
+        assert_eq!(puller.get_recv_buffer(), 1);
+
+        puller.set_recv_buffer(128).unwrap();
+        assert_eq!(puller.get_recv_buffer(), 128);
+
+        puller.set_recv_buffer(8192).unwrap();
+        assert_eq!(puller.get_recv_buffer(), 8192);
+
+        let result = puller.set_recv_buffer(8193);
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);

@@ -49,6 +49,158 @@ use core::{
 use std::io;
 use std::num::NonZeroU32;
 
+/// Implements `set_send_buffer` on `Socket<$protocol>`.
+macro_rules! impl_set_send_buffer {
+    ($protocol:ty) => {
+        impl $crate::Socket<$protocol> {
+            /// Sets the send buffer size for this socket.
+            ///
+            /// Controls how many messages can be queued locally when peers are not
+            /// immediately ready. Set before establishing connections for best effect.
+            ///
+            /// **Note**: Transport-level buffering (e.g. TCP send/receive buffers) is
+            /// managed by the OS independently of this setting.
+            ///
+            /// # Parameters
+            ///
+            /// - `size`: Messages to buffer (0-8192). Some protocols reject 0.
+            pub fn set_send_buffer(&self, size: u16) -> ::std::io::Result<()> {
+                $crate::protocols::set_buffer(self.id(), nng_sys::NNG_OPT_SENDBUF, size, "send")
+            }
+        }
+    };
+}
+
+/// Implements `get_send_buffer` on `Socket<$protocol>`.
+macro_rules! impl_get_send_buffer {
+    ($protocol:ty) => {
+        impl $crate::Socket<$protocol> {
+            /// Returns the current send buffer size for this socket.
+            pub fn get_send_buffer(&self) -> u16 {
+                $crate::protocols::get_buffer(self.id(), nng_sys::NNG_OPT_SENDBUF)
+            }
+        }
+    };
+}
+
+/// Implements `set_recv_buffer` on `Socket<$protocol>`.
+macro_rules! impl_set_recv_buffer {
+    ($protocol:ty) => {
+        impl $crate::Socket<$protocol> {
+            /// Sets the receive buffer size for this socket.
+            ///
+            /// Controls how many messages can be queued locally before back-pressure
+            /// is applied to peers. Set before establishing connections for best effect.
+            ///
+            /// **Note**: Transport-level buffering (e.g. TCP send/receive buffers) is
+            /// managed by the OS independently of this setting.
+            ///
+            /// # Parameters
+            ///
+            /// - `size`: Messages to buffer (0-8192). Some protocols reject 0.
+            pub fn set_recv_buffer(&self, size: u16) -> ::std::io::Result<()> {
+                $crate::protocols::set_buffer(
+                    self.id(),
+                    nng_sys::NNG_OPT_RECVBUF,
+                    size,
+                    "receive",
+                )
+            }
+        }
+    };
+}
+
+/// Implements `get_recv_buffer` on `Socket<$protocol>`.
+macro_rules! impl_get_recv_buffer {
+    ($protocol:ty) => {
+        impl $crate::Socket<$protocol> {
+            /// Returns the current receive buffer size for this socket.
+            pub fn get_recv_buffer(&self) -> u16 {
+                $crate::protocols::get_buffer(self.id(), nng_sys::NNG_OPT_RECVBUF)
+            }
+        }
+    };
+}
+
+/// Shared implementation for `set_send_buffer` / `set_recv_buffer`.
+pub(crate) fn set_buffer(
+    socket: nng_sys::nng_socket,
+    opt: &[u8],
+    size: u16,
+    direction: &str,
+) -> io::Result<()> {
+    debug_assert!(
+        core::ptr::eq(opt, nng_sys::NNG_OPT_SENDBUF)
+            || core::ptr::eq(opt, nng_sys::NNG_OPT_RECVBUF),
+        "opt must be NNG_OPT_SENDBUF or NNG_OPT_RECVBUF"
+    );
+
+    if size > 8192 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{direction} buffer size {size} exceeds maximum of 8192"),
+        ));
+    }
+
+    let errno = unsafe {
+        nng_sys::nng_socket_set_int(
+            socket,
+            opt as *const _ as *const core::ffi::c_char,
+            i32::from(size),
+        )
+    };
+
+    match u32::try_from(errno).expect("errno is never negative") {
+        0 => Ok(()),
+        errno if errno == ErrorCode::ECLOSED as u32 => {
+            unreachable!("socket is still open");
+        }
+        errno if errno == ErrorCode::EINVAL as u32 => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{direction} buffer size {size} rejected by protocol"),
+        )),
+        errno if errno == ErrorCode::ENOMEM as u32 => Err(io::Error::new(
+            io::ErrorKind::OutOfMemory,
+            format!("insufficient memory to resize {direction} buffer"),
+        )),
+        errno => {
+            unreachable!("nng documentation claims errno {errno} is never returned");
+        }
+    }
+}
+
+/// Shared implementation for `get_send_buffer` / `get_recv_buffer`.
+pub(crate) fn get_buffer(socket: nng_sys::nng_socket, opt: &[u8]) -> u16 {
+    debug_assert!(
+        core::ptr::eq(opt, nng_sys::NNG_OPT_SENDBUF)
+            || core::ptr::eq(opt, nng_sys::NNG_OPT_RECVBUF),
+        "opt must be NNG_OPT_SENDBUF or NNG_OPT_RECVBUF"
+    );
+
+    let mut val = MaybeUninit::<c_int>::uninit();
+    let errno = unsafe {
+        nng_sys::nng_socket_get_int(
+            socket,
+            opt as *const _ as *const core::ffi::c_char,
+            val.as_mut_ptr(),
+        )
+    };
+
+    match u32::try_from(errno).expect("errno is never negative") {
+        0 => {
+            // SAFETY: nng_socket_get_int initializes val on success.
+            let val = unsafe { val.assume_init() };
+            u16::try_from(val).expect("NNG buffer size is always in 0..=8192")
+        }
+        errno if errno == ErrorCode::ECLOSED as u32 => {
+            unreachable!("socket is still open");
+        }
+        errno => {
+            unreachable!("nng_socket_get_int documentation claims errno {errno} is never returned");
+        }
+    }
+}
+
 pub mod bus0;
 pub mod pair1;
 pub mod pipeline0;

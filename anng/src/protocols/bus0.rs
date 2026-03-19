@@ -155,6 +155,11 @@ impl Bus0 {
     }
 }
 
+impl_set_send_buffer!(Bus0);
+impl_get_send_buffer!(Bus0);
+impl_set_recv_buffer!(Bus0);
+impl_get_recv_buffer!(Bus0);
+
 impl Socket<Bus0> {
     /// Sends a message to all connected bus peers.
     ///
@@ -207,5 +212,41 @@ mod tests {
     fn test_bus_socket_creation() {
         let socket = Bus0::socket();
         assert!(socket.is_ok());
+    }
+
+    #[test]
+    fn test_send_buffer_configuration() {
+        let socket = Bus0::socket().unwrap();
+
+        socket.set_send_buffer(1).unwrap();
+        assert_eq!(socket.get_send_buffer(), 1);
+
+        socket.set_send_buffer(128).unwrap();
+        assert_eq!(socket.get_send_buffer(), 128);
+
+        socket.set_send_buffer(8192).unwrap();
+        assert_eq!(socket.get_send_buffer(), 8192);
+
+        let result = socket.set_send_buffer(8193);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn test_recv_buffer_configuration() {
+        let socket = Bus0::socket().unwrap();
+
+        socket.set_recv_buffer(1).unwrap();
+        assert_eq!(socket.get_recv_buffer(), 1);
+
+        socket.set_recv_buffer(128).unwrap();
+        assert_eq!(socket.get_recv_buffer(), 128);
+
+        socket.set_recv_buffer(8192).unwrap();
+        assert_eq!(socket.get_recv_buffer(), 8192);
+
+        let result = socket.set_recv_buffer(8193);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
     }
 }

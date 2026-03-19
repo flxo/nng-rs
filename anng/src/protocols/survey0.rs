@@ -160,6 +160,11 @@ impl Surveyor0 {
     }
 }
 
+impl_set_send_buffer!(Surveyor0);
+impl_get_send_buffer!(Surveyor0);
+impl_set_recv_buffer!(Surveyor0);
+impl_get_recv_buffer!(Surveyor0);
+
 impl<'socket> ContextfulSocket<'socket, Surveyor0> {
     /// Sets the survey timeout for this context.
     ///
@@ -490,6 +495,11 @@ impl Respondent0 {
     }
 }
 
+impl_set_send_buffer!(Respondent0);
+impl_get_send_buffer!(Respondent0);
+impl_set_recv_buffer!(Respondent0);
+impl_get_recv_buffer!(Respondent0);
+
 impl<'socket> ContextfulSocket<'socket, Respondent0> {
     /// Receives the next survey and returns the message along with a responder.
     ///
@@ -673,5 +683,82 @@ impl SurveyResponder<'_, '_> {
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_surveyor_send_buffer_configuration() {
+        let socket = Surveyor0::socket().unwrap();
+
+        socket.set_send_buffer(0).unwrap();
+        assert_eq!(socket.get_send_buffer(), 0);
+
+        socket.set_send_buffer(128).unwrap();
+        assert_eq!(socket.get_send_buffer(), 128);
+
+        socket.set_send_buffer(8192).unwrap();
+        assert_eq!(socket.get_send_buffer(), 8192);
+
+        let result = socket.set_send_buffer(8193);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn test_surveyor_recv_buffer_configuration() {
+        let socket = Surveyor0::socket().unwrap();
+
+        socket.set_recv_buffer(0).unwrap();
+        assert_eq!(socket.get_recv_buffer(), 0);
+
+        socket.set_recv_buffer(128).unwrap();
+        assert_eq!(socket.get_recv_buffer(), 128);
+
+        socket.set_recv_buffer(8192).unwrap();
+        assert_eq!(socket.get_recv_buffer(), 8192);
+
+        let result = socket.set_recv_buffer(8193);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn test_respondent_send_buffer_configuration() {
+        let socket = Respondent0::socket().unwrap();
+
+        socket.set_send_buffer(0).unwrap();
+        assert_eq!(socket.get_send_buffer(), 0);
+
+        socket.set_send_buffer(128).unwrap();
+        assert_eq!(socket.get_send_buffer(), 128);
+
+        socket.set_send_buffer(8192).unwrap();
+        assert_eq!(socket.get_send_buffer(), 8192);
+
+        let result = socket.set_send_buffer(8193);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn test_respondent_recv_buffer_configuration() {
+        let socket = Respondent0::socket().unwrap();
+
+        socket.set_recv_buffer(0).unwrap();
+        assert_eq!(socket.get_recv_buffer(), 0);
+
+        socket.set_recv_buffer(128).unwrap();
+        assert_eq!(socket.get_recv_buffer(), 128);
+
+        socket.set_recv_buffer(8192).unwrap();
+        assert_eq!(socket.get_recv_buffer(), 8192);
+
+        let result = socket.set_recv_buffer(8193);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
     }
 }

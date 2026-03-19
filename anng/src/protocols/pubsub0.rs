@@ -562,6 +562,11 @@ impl Pub0 {
     }
 }
 
+impl_set_recv_buffer!(Sub0);
+impl_get_recv_buffer!(Sub0);
+impl_set_send_buffer!(Pub0);
+impl_get_send_buffer!(Pub0);
+
 impl Socket<Pub0> {
     /// Publishes a message to all connected subscribers.
     ///
@@ -621,5 +626,46 @@ impl Socket<Pub0> {
     /// ```
     pub async fn publish(&mut self, message: Message) -> Result<(), (AioError, Message)> {
         self.send_msg(message).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pub_send_buffer_configuration() {
+        let socket = Pub0::socket().unwrap();
+
+        socket.set_send_buffer(1).unwrap();
+        assert_eq!(socket.get_send_buffer(), 1);
+
+        socket.set_send_buffer(128).unwrap();
+        assert_eq!(socket.get_send_buffer(), 128);
+
+        socket.set_send_buffer(8192).unwrap();
+        assert_eq!(socket.get_send_buffer(), 8192);
+
+        let result = socket.set_send_buffer(8193);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn test_sub_recv_buffer_configuration() {
+        let socket = Sub0::socket().unwrap();
+
+        socket.set_recv_buffer(1).unwrap();
+        assert_eq!(socket.get_recv_buffer(), 1);
+
+        socket.set_recv_buffer(128).unwrap();
+        assert_eq!(socket.get_recv_buffer(), 128);
+
+        socket.set_recv_buffer(8192).unwrap();
+        assert_eq!(socket.get_recv_buffer(), 8192);
+
+        let result = socket.set_recv_buffer(8193);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidInput);
     }
 }
