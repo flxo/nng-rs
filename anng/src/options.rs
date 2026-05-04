@@ -60,7 +60,7 @@ pub(crate) fn set_ctx_ms(
     let option_cstr = CStr::from_bytes_with_nul(option)
         .unwrap_or_else(|e| panic!("option name is not a valid C string: {e}"));
     // SAFETY: caller guarantees the context is valid and supports the named option;
-    //         `option` is arount `&'static [u8]`, so its `.as_ptr()` is valid for the FFI call.
+    //         `option_str` is built from a `&'static [u8]`, so its `.as_ptr()` is valid for the FFI call.
     let raw_errno = unsafe { nng_sys::nng_ctx_set_ms(ctx, option_cstr.as_ptr(), ms) };
     let errno = u32::try_from(raw_errno).expect("errno is never negative");
     check_set_ms_errno(errno, label, "nng_ctx_set_ms");
