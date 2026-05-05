@@ -196,13 +196,13 @@ impl Socket<Req0> {
     /// # Panics
     ///
     /// Panics if `timeout` exceeds `i32::MAX` milliseconds.
-    pub fn set_resend_time(&self, timeout: Duration) {
+    pub fn set_resend_time(&self, timeout: Duration) -> io::Result<()> {
         crate::options::set_socket_ms(
             self.id(),
             nng_sys::NNG_OPT_REQ_RESENDTIME,
             timeout,
             "resend time",
-        );
+        )
     }
 
     /// Sets the granularity of the [resend time](Self::set_resend_time) timer.
@@ -226,13 +226,13 @@ impl Socket<Req0> {
     /// # Panics
     ///
     /// Panics if `tick` exceeds `i32::MAX` milliseconds.
-    pub fn set_resend_tick(&self, tick: Duration) {
+    pub fn set_resend_tick(&self, tick: Duration) -> io::Result<()> {
         crate::options::set_socket_ms(
             self.id(),
             nng_sys::NNG_OPT_REQ_RESENDTICK,
             tick,
             "resend tick",
-        );
+        )
     }
 }
 
@@ -258,13 +258,13 @@ impl<'socket> ContextfulSocket<'socket, Req0> {
     /// # Panics
     ///
     /// Panics if `timeout` exceeds `i32::MAX` milliseconds.
-    pub fn set_resend_time(&mut self, timeout: Duration) {
+    pub fn set_resend_time(&mut self, timeout: Duration) -> io::Result<()> {
         crate::options::set_ctx_ms(
             self.context.id(),
             nng_sys::NNG_OPT_REQ_RESENDTIME,
             timeout,
             "resend time",
-        );
+        )
     }
 
     /// Sends a request and returns a future that will resolve to the reply.
@@ -691,42 +691,61 @@ mod tests {
     #[test]
     fn set_resend_option_socket_smoke() {
         let socket = Req0::socket().unwrap();
-        socket.set_resend_time(Duration::ZERO);
-        socket.set_resend_time(Duration::from_millis(1));
-        socket.set_resend_time(Duration::from_secs(60));
-        socket.set_resend_time(Duration::from_millis(i32::MAX as u64));
+        socket
+            .set_resend_time(Duration::ZERO)
+            .expect("can set resend time");
+        socket
+            .set_resend_time(Duration::from_millis(1))
+            .expect("can set resend time");
+        socket
+            .set_resend_time(Duration::from_secs(60))
+            .expect("can set resend time");
+        socket
+            .set_resend_time(Duration::from_millis(i32::MAX as u64))
+            .expect("can set resend time");
 
         let socket = Req0::socket().unwrap();
-        socket.set_resend_tick(Duration::ZERO);
-        socket.set_resend_tick(Duration::from_millis(1));
-        socket.set_resend_tick(Duration::from_secs(1));
-        socket.set_resend_tick(Duration::from_millis(i32::MAX as u64));
+        socket
+            .set_resend_tick(Duration::ZERO)
+            .expect("can set resend tick");
+        socket
+            .set_resend_tick(Duration::from_millis(1))
+            .expect("can set resend tick");
+        socket
+            .set_resend_tick(Duration::from_secs(1))
+            .expect("can set resend tick");
+        socket
+            .set_resend_tick(Duration::from_millis(i32::MAX as u64))
+            .expect("can set resend tick");
 
         let mut ctx = socket.context();
-        ctx.set_resend_time(Duration::ZERO);
-        ctx.set_resend_time(Duration::from_millis(50));
-        ctx.set_resend_time(Duration::from_secs(60));
+        ctx.set_resend_time(Duration::ZERO)
+            .expect("can set resend time");
+        ctx.set_resend_time(Duration::from_millis(50))
+            .expect("can set resend time");
+        ctx.set_resend_time(Duration::from_secs(60))
+            .expect("can set resend time");
     }
 
     #[test]
     #[should_panic(expected = "resend time is too large")]
     fn set_resend_time_socket_overflow_panics() {
         let socket = Req0::socket().unwrap();
-        socket.set_resend_time(Duration::from_millis(i32::MAX as u64 + 1));
+        let _ = socket.set_resend_time(Duration::from_millis(i32::MAX as u64 + 1));
     }
 
     #[test]
     #[should_panic(expected = "resend time is too large")]
     fn set_resend_time_socket_duration_max_panics() {
         let socket = Req0::socket().unwrap();
-        socket.set_resend_time(Duration::MAX);
+        let _ = socket.set_resend_time(Duration::MAX);
     }
 
     #[test]
     #[should_panic(expected = "resend tick is too large")]
     fn set_resend_tick_socket_overflow_panics() {
         let socket = Req0::socket().unwrap();
-        socket.set_resend_tick(Duration::from_millis(i32::MAX as u64 + 1));
+        let _ = socket.set_resend_tick(Duration::from_millis(i32::MAX as u64 + 1));
     }
 
     #[test]
@@ -734,6 +753,6 @@ mod tests {
     fn set_resend_time_context_overflow_panics() {
         let socket = Req0::socket().unwrap();
         let mut ctx = socket.context();
-        ctx.set_resend_time(Duration::from_millis(i32::MAX as u64 + 1));
+        let _ = ctx.set_resend_time(Duration::from_millis(i32::MAX as u64 + 1));
     }
 }

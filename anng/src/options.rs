@@ -19,7 +19,8 @@ use core::{
     ffi::{CStr, c_int},
     time::Duration,
 };
-use nng_sys::ErrorCode;
+use nng_sys::{ErrorCode, ErrorKind};
+use std::io;
 
 /// Sets a `nng_duration` (ms) option on a socket, panicking on any NNG-reported error.
 ///
@@ -37,8 +38,8 @@ pub(crate) fn set_socket_ms(
     socket: nng_sys::nng_socket,
     option: &'static [u8],
     duration: Duration,
-    label: &'static str,
-) {
+    label: &str,
+) -> io::Result<()> {
     let ms = duration_to_nng_ms(duration, label);
     let option_cstr = CStr::from_bytes_with_nul(option)
         .unwrap_or_else(|e| panic!("option name is not a valid C string: {e}"));
@@ -46,7 +47,7 @@ pub(crate) fn set_socket_ms(
     //         `option_cstr` is built from a `&'static [u8]`, so its `.as_ptr()` is valid for the FFI call.
     let raw_errno = unsafe { nng_sys::nng_socket_set_ms(socket, option_cstr.as_ptr(), ms) };
     let errno = u32::try_from(raw_errno).expect("errno is never negative");
-    check_set_ms_errno(errno, label, "nng_socket_set_ms");
+    check_map_set_ms_errno(errno, label, "nng_socket_set_ms")
 }
 
 /// Sets a `nng_duration` (ms) option on a context. See [`set_socket_ms`] for invariants.
@@ -54,8 +55,8 @@ pub(crate) fn set_ctx_ms(
     ctx: nng_sys::nng_ctx,
     option: &'static [u8],
     duration: Duration,
-    label: &'static str,
-) {
+    label: &str,
+) -> io::Result<()> {
     let ms = duration_to_nng_ms(duration, label);
     let option_cstr = CStr::from_bytes_with_nul(option)
         .unwrap_or_else(|e| panic!("option name is not a valid C string: {e}"));
@@ -63,10 +64,10 @@ pub(crate) fn set_ctx_ms(
     //         `option_str` is built from a `&'static [u8]`, so its `.as_ptr()` is valid for the FFI call.
     let raw_errno = unsafe { nng_sys::nng_ctx_set_ms(ctx, option_cstr.as_ptr(), ms) };
     let errno = u32::try_from(raw_errno).expect("errno is never negative");
-    check_set_ms_errno(errno, label, "nng_ctx_set_ms");
+    check_map_set_ms_errno(errno, label, "nng_ctx_set_ms")
 }
 
-fn duration_to_nng_ms(duration: Duration, label: &'static str) -> c_int {
+fn duration_to_nng_ms(duration: Duration, label: &str) -> c_int {
     let ms = duration.as_millis();
     if ms > i32::MAX as u128 {
         panic!("{label} is too large: {duration:?}");
@@ -74,29 +75,41 @@ fn duration_to_nng_ms(duration: Duration, label: &'static str) -> c_int {
     ms as c_int
 }
 
-fn check_set_ms_errno(errno: u32, label: &'static str, fn_name: &str) {
+fn check_map_set_ms_errno(errno: u32, label: &str, fn_name: &str) -> io::Result<()> {
     match errno {
-        0 => {}
+        0 => Ok(()),
         e if e == ErrorCode::ECLOSED as u32 => {
-            unreachable!("{fn_name}({label}): NNG returned ECLOSED ({errno}) unexpectedly");
+            unreachable!("{fn_name}({label}): NNG returned ECLOSED on a borrowed, live handle");
         }
         e if e == ErrorCode::EINVAL as u32 => {
             unreachable!(
-                "{fn_name}({label}): NNG rejected duration as invalid via EINVAL ({errno})"
+                "{fn_name}({label}): NNG returned EINVAL despite a pre-validated duration and \
+                 a static option name"
             );
         }
         e if e == ErrorCode::ENOTSUP as u32 => {
             unreachable!(
-                "{fn_name}({label}): option not supported on this protocol/scope — NNG returned ENOTSUP ({errno})"
+                "{fn_name}({label}): NNG returned ENOTSUP — option/protocol pairing is wrong \
+                 in the calling protocol module"
             );
         }
         e if e == ErrorCode::EREADONLY as u32 => {
             unreachable!(
-                "{fn_name}({label}): option is read-only — NNG returned EREADONLY ({errno})"
+                "{fn_name}({label}): NNG returned EREADONLY — a read-only ms option was routed \
+                 through a helper that assumes always-mutable options"
             );
         }
+        e if e == ErrorCode::ESTATE as u32 => {
+            Err(io::Error::other(ErrorKind::NngError(ErrorCode::ESTATE)))
+        }
         _ => {
-            unreachable!("{fn_name}({label}) returned undocumented errno {errno}");
+            // Any other errno is undocumented for `nng_socket_set_ms` / `nng_ctx_set_ms`.
+            // Most likely cause: NNG added a new failure mode in a newer release. Re-check the
+            // current `nng_*_set_ms` docs and add an explicit arm above for the new errno.
+            unreachable!(
+                "{fn_name}({label}) returned errno {errno}, which is not documented for \
+                 `nng_*_set_ms` — NNG behaviour likely changed; update this match"
+            );
         }
     }
 }
