@@ -215,11 +215,6 @@ impl Socket<Req0> {
     ///
     /// [`NNG_OPT_REQ_RESENDTICK`]: nng_sys::NNG_OPT_REQ_RESENDTICK
     ///
-    /// Trade-off: a shorter tick tightens resend timing at the cost of more wakeups (and CPU);
-    /// a longer tick reduces overhead but coarsens resend timing. The default (one second) is
-    /// fine when `resend_time` is in the tens of seconds; lower it when `resend_time` itself is
-    /// sub-second, otherwise the tick dominates.
-    ///
     /// Unlike [`set_resend_time`](Self::set_resend_time), this option has no per-context
     /// equivalent and applies to every context on the socket.
     ///
@@ -241,11 +236,10 @@ impl<'socket> ContextfulSocket<'socket, Req0> {
     ///
     /// REQ0 retransmits an outstanding request whenever this duration elapses without a reply,
     /// guarding against lost requests, dropped replies, or replier restarts. The context
-    /// inherits the socket value (default 60 seconds) at creation time; this method overrides
-    /// it for this context only and does not affect the socket default or other contexts.
-    /// Resend is checked at the socket-wide [tick interval](Socket::set_resend_tick), so the
-    /// actual retransmit can lag the nominal timeout by up to one tick. Wraps NNG's
-    /// [`NNG_OPT_REQ_RESENDTIME`] option.
+    /// inherits the socket value at creation time; this method overrides it for this context
+    /// only and does not affect the socket default or other contexts. Resend is checked at the
+    /// socket-wide [tick interval](Socket::set_resend_tick), so the actual retransmit can lag
+    /// the nominal timeout by up to one tick. Wraps NNG's [`NNG_OPT_REQ_RESENDTIME`] option.
     ///
     /// [`NNG_OPT_REQ_RESENDTIME`]: nng_sys::NNG_OPT_REQ_RESENDTIME
     ///
