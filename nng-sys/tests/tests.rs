@@ -115,4 +115,68 @@ mod tests {
             );
         }
     }
+
+    /// The messages of the well-known error codes are vendored in `nng-sys`
+    /// because `nng_strerror` is not thread-safe for the remaining ones. Ensure
+    /// the vendored copies don't drift from the linked library, in either
+    /// direction: no stale message, and no error code added upstream without a
+    /// vendored message.
+    #[test]
+    fn vendored_error_messages_match_nng_strerror() {
+        for code in (0..=2000u32).map(nng_err) {
+            // System and transport errors are always rendered into a shared
+            // mutable buffer and are never vendored.
+            if code.0 & (nng_err::NNG_ESYSERR.0 | nng_err::NNG_ETRANERR.0) != 0 {
+                continue;
+            }
+
+            // SAFETY: `nng_strerror` is safe to call with any `nng_err`. The
+            // returned string is static for the well-known codes and points to
+            // a process-wide buffer for the unknown ones, which is read here
+            // before any other thread can call `nng_strerror`.
+            let actual = unsafe { CStr::from_ptr(nng_strerror(code)) }
+                .to_str()
+                .expect("nng_strerror returns UTF-8");
+
+            if actual == format!("Unknown error #{}", code.0) {
+                assert_eq!(
+                    code.as_str(),
+                    None,
+                    "{code:?} is vendored but unknown to nng_strerror"
+                );
+            } else {
+                assert_eq!(
+                    code.as_str(),
+                    Some(actual),
+                    "vendored message of {code:?} doesn't match nng_strerror"
+                );
+                assert_eq!(
+                    code.as_cstr().map(CStr::to_bytes),
+                    Some(actual.as_bytes()),
+                    "vendored C string of {code:?} doesn't match nng_strerror"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn dynamic_error_messages() {
+        let transport = nng_err(nng_err::NNG_ETRANERR.0 | 42);
+        assert_eq!(transport.as_str(), None);
+        assert_eq!(transport.as_cstr(), None);
+        assert_eq!(transport.to_string(), "Transport error #42");
+
+        let unknown = nng_err(12345);
+        assert_eq!(unknown.as_str(), None);
+        assert_eq!(unknown.as_cstr(), None);
+        assert_eq!(unknown.to_string(), "Unknown error #12345");
+
+        let system = nng_err(nng_err::NNG_ESYSERR.0 | 2);
+        assert_eq!(system.as_str(), None);
+        assert_eq!(system.as_cstr(), None);
+        assert_eq!(
+            system.to_string(),
+            std::io::Error::from_raw_os_error(2).to_string()
+        );
+    }
 }

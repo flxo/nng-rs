@@ -264,13 +264,15 @@ impl ErrorKind {
             nng_err::NNG_ECONNSHUT => ErrorKind::NngError(ErrorCode::ECONNSHUT),
             nng_err::NNG_ESTOPPED => ErrorKind::NngError(ErrorCode::ESTOPPED),
             nng_err::NNG_EINTERNAL => ErrorKind::NngError(ErrorCode::EINTERNAL),
-            err if err.0 & nng_err::NNG_ETRANERR.0 != 0 => {
-                ErrorKind::Transport(err.0 & !nng_err::NNG_ETRANERR.0)
-            }
+            // Same order as `nng_strerror`: the system error flag wins over the
+            // transport one.
             err if err.0 & nng_err::NNG_ESYSERR.0 != 0 => {
                 let sys_err = err.0 & !nng_err::NNG_ESYSERR.0;
                 let kind = std::io::Error::from_raw_os_error(sys_err as i32).kind();
                 ErrorKind::System(kind)
+            }
+            err if err.0 & nng_err::NNG_ETRANERR.0 != 0 => {
+                ErrorKind::Transport(err.0 & !nng_err::NNG_ETRANERR.0)
             }
             err => ErrorKind::Other(NonZeroU32::new(err.0).expect("error codes are non-zero")),
         }
@@ -286,26 +288,125 @@ impl ErrorKind {
     }
 }
 
-impl nng_err {
-    /// Returns a static C-string describing this error.
-    ///
-    /// This is a thin wrapper around `nng_strerror` that works in `no_std`
-    /// environments. The returned string has static lifetime as NNG returns
-    /// pointers to static null terminated string literals.
-    pub fn as_cstr(&self) -> &'static core::ffi::CStr {
-        // SAFETY: nng_strerror is safe to call with any nng_err value.
-        let raw = unsafe { nng_strerror(*self) };
-        // SAFETY: nng_strerror returns a valid, null-terminated, static string.
-        unsafe { core::ffi::CStr::from_ptr(raw) }
+/// Defines [`nng_err::as_str`] and [`nng_err::as_cstr`] from a single list of
+/// messages vendored from `nng_strerror`.
+macro_rules! error_messages {
+    ($($code:ident => $msg:literal,)*) => {
+        impl nng_err {
+            /// Returns a static string describing this error.
+            ///
+            /// The messages are vendored copies of the ones in `nng_strerror`
+            /// and are available in `no_std` environments.
+            ///
+            /// Only the well-known error codes have a message: `nng_strerror`
+            /// renders system, transport and unknown error codes into
+            /// process-wide mutable buffers (or delegates to the non-reentrant
+            /// `strerror`), which is not thread-safe. Those codes return `None`
+            /// here and are formatted by this crate instead, see the
+            /// [`Display`](core::fmt::Display) implementation.
+            ///
+            /// [`nng_err::NNG_OK`] is not an error and yields the success
+            /// message of `nng_strerror`.
+            pub const fn as_str(&self) -> Option<&'static str> {
+                match *self {
+                    $(nng_err::$code => Some($msg),)*
+                    _ => None,
+                }
+            }
+
+            /// Returns a static C-string describing this error.
+            ///
+            /// This is the [`as_str`](Self::as_str) message with a trailing nul
+            /// and has the same restrictions.
+            pub const fn as_cstr(&self) -> Option<&'static core::ffi::CStr> {
+                match *self {
+                    $(nng_err::$code => Some(cstr(concat!($msg, "\0").as_bytes())),)*
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+/// Converts a nul terminated byte string into a [`CStr`](core::ffi::CStr).
+///
+/// # Panics
+///
+/// Panics at compile time if `bytes` is not a valid C string.
+const fn cstr(bytes: &'static [u8]) -> &'static core::ffi::CStr {
+    match core::ffi::CStr::from_bytes_with_nul(bytes) {
+        Ok(cstr) => cstr,
+        Err(_) => panic!("message is not a valid C string"),
     }
 }
 
+// Keep in sync with the `nni_errors` table in `nng/src/nng.c`. The
+// `vendored_error_messages_match_nng_strerror` test guards against drift.
+error_messages! {
+    NNG_OK => "Hunky dory",
+    NNG_EINTR => "Interrupted",
+    NNG_ENOMEM => "Out of memory",
+    NNG_EINVAL => "Invalid argument",
+    NNG_EBUSY => "Resource busy",
+    NNG_ETIMEDOUT => "Timed out",
+    NNG_ECONNREFUSED => "Connection refused",
+    NNG_ECLOSED => "Object closed",
+    NNG_EAGAIN => "Try again",
+    NNG_ENOTSUP => "Not supported",
+    NNG_EADDRINUSE => "Address in use",
+    NNG_ESTATE => "Incorrect state",
+    NNG_ENOENT => "Entry not found",
+    NNG_EPROTO => "Protocol error",
+    NNG_EUNREACHABLE => "Destination unreachable",
+    NNG_EADDRINVAL => "Address invalid",
+    NNG_EPERM => "Permission denied",
+    NNG_EMSGSIZE => "Message too large",
+    NNG_ECONNRESET => "Connection reset",
+    NNG_ECONNABORTED => "Connection aborted",
+    NNG_ECANCELED => "Operation canceled",
+    NNG_ENOFILES => "Out of files",
+    NNG_ENOSPC => "Out of space",
+    NNG_EEXIST => "Resource already exists",
+    NNG_EREADONLY => "Read only resource",
+    NNG_EWRITEONLY => "Write only resource",
+    NNG_ECRYPTO => "Cryptographic error",
+    NNG_EPEERAUTH => "Peer could not be authenticated",
+    NNG_EBADTYPE => "Incorrect type",
+    NNG_ECONNSHUT => "Connection shutdown",
+    NNG_ESTOPPED => "Operation stopped",
+    NNG_EINTERNAL => "Internal error detected",
+}
+
+/// Formats a system error the way `nng_strerror` would, without sharing
+/// `strerror`'s static buffer.
 #[cfg(feature = "std")]
-impl std::fmt::Display for nng_err {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        // TODO(flxo): update this once [Tracking Issue for
-        // CStr::display](https://github.com/rust-lang/rust/issues/139984) is stable
-        write!(fmt, "{}", self.as_cstr().to_string_lossy())
+fn write_sys_err(fmt: &mut core::fmt::Formatter, errno: u32) -> core::fmt::Result {
+    write!(fmt, "{}", std::io::Error::from_raw_os_error(errno as i32))
+}
+
+/// Formats a system error. Without `std` there is no portable way to render
+/// `errno`, so only the number is printed.
+#[cfg(not(feature = "std"))]
+fn write_sys_err(fmt: &mut core::fmt::Formatter, errno: u32) -> core::fmt::Result {
+    write!(fmt, "System error #{errno}")
+}
+
+impl core::fmt::Display for nng_err {
+    fn fmt(&self, fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if let Some(msg) = self.as_str() {
+            return fmt.write_str(msg);
+        }
+
+        // Same order as `nng_strerror`: the system error flag wins over the
+        // transport one.
+        let code = self.0;
+        if code & nng_err::NNG_ESYSERR.0 != 0 {
+            write_sys_err(fmt, code & !nng_err::NNG_ESYSERR.0)
+        } else if code & nng_err::NNG_ETRANERR.0 != 0 {
+            write!(fmt, "Transport error #{}", code & !nng_err::NNG_ETRANERR.0)
+        } else {
+            write!(fmt, "Unknown error #{code}")
+        }
     }
 }
 
